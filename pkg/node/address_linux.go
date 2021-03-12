@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -30,6 +31,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
+
+type labeledIP struct {
+	IP    net.IP
+	Label string
+}
+
+func (ip labeledIP) IsSecondary() bool {
+	return strings.Contains(ip.Label, ":")
+}
 
 func firstGlobalAddr(intf string, preferredIP net.IP, family int, preferPublic bool) (net.IP, error) {
 	var link netlink.Link
@@ -60,8 +70,8 @@ retryInterface:
 	}
 
 retryScope:
-	ipsPublic := []net.IP{}
-	ipsPrivate := []net.IP{}
+	ipsPublic := []labeledIP{}
+	ipsPrivate := []labeledIP{}
 	hasPreferred := false
 
 	for _, a := range addr {
@@ -71,9 +81,9 @@ retryScope:
 			}
 			if len(a.IP) >= ipLen {
 				if ip.IsPublicAddr(a.IP) {
-					ipsPublic = append(ipsPublic, a.IP)
+					ipsPublic = append(ipsPublic, labeledIP{a.IP, a.Label})
 				} else {
-					ipsPrivate = append(ipsPrivate, a.IP)
+					ipsPrivate = append(ipsPrivate, labeledIP{a.IP, a.Label})
 				}
 				// If the IP is the same as the preferredIP, that
 				// means that maybe it is restored from node_config.h,
@@ -97,10 +107,18 @@ retryScope:
 		// Just make sure that we always return the same one and not a
 		// random one. More info in the issue GH-7637.
 		sort.Slice(ipsPublic, func(i, j int) bool {
-			return bytes.Compare(ipsPublic[i], ipsPublic[j]) < 0
+			if ipsPublic[i].IsSecondary() != ipsPublic[j].IsSecondary() {
+				switch {
+				case ipsPublic[i].IsSecondary():
+					return false
+				case ipsPublic[j].IsSecondary():
+					return true
+				}
+			}
+			return bytes.Compare(ipsPublic[i].IP, ipsPublic[j].IP) < 0
 		})
 
-		return ipsPublic[0], nil
+		return ipsPublic[0].IP, nil
 	}
 
 	if len(ipsPrivate) != 0 {
@@ -110,10 +128,18 @@ retryScope:
 
 		// Same stable order, see above ipsPublic.
 		sort.Slice(ipsPrivate, func(i, j int) bool {
-			return bytes.Compare(ipsPrivate[i], ipsPrivate[j]) < 0
+			if ipsPrivate[i].IsSecondary() != ipsPrivate[j].IsSecondary() {
+				switch {
+				case ipsPrivate[i].IsSecondary():
+					return false
+				case ipsPrivate[j].IsSecondary():
+					return true
+				}
+			}
+			return bytes.Compare(ipsPrivate[i].IP, ipsPrivate[j].IP) < 0
 		})
 
-		return ipsPrivate[0], nil
+		return ipsPrivate[0].IP, nil
 	}
 
 	// First, if a device is specified, fall back to anything wider
