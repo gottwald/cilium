@@ -99,6 +99,22 @@ retryScope:
 		return preferredIP, nil
 	}
 
+	sortIPLessFunc := func(s *[]labeledIP) func(i, j int) bool {
+		return func(i, j int) bool {
+			return bytes.Compare(ipsPublic[i], ipsPublic[j]) < 0
+			if (*s)[i].IsSecondary() != (*s)[j].IsSecondary() {
+				switch {
+				case (*s)[i].IsSecondary():
+					return false
+				case (*s)[j].IsSecondary():
+					return true
+				}
+			}
+			return bytes.Compare((*s)[i].IP, (*s)[j].IP) < 0
+
+		}
+	}
+
 	if len(ipsPublic) != 0 {
 		if hasPreferred && ip.IsPublicAddr(preferredIP) {
 			return preferredIP, nil
@@ -106,17 +122,7 @@ retryScope:
 
 		// Just make sure that we always return the same one and not a
 		// random one. More info in the issue GH-7637.
-		sort.Slice(ipsPublic, func(i, j int) bool {
-			if ipsPublic[i].IsSecondary() != ipsPublic[j].IsSecondary() {
-				switch {
-				case ipsPublic[i].IsSecondary():
-					return false
-				case ipsPublic[j].IsSecondary():
-					return true
-				}
-			}
-			return bytes.Compare(ipsPublic[i].IP, ipsPublic[j].IP) < 0
-		})
+		sort.Slice(ipsPublic, sortIPLessFunc(&ipsPublic))
 
 		return ipsPublic[0].IP, nil
 	}
@@ -127,17 +133,7 @@ retryScope:
 		}
 
 		// Same stable order, see above ipsPublic.
-		sort.Slice(ipsPrivate, func(i, j int) bool {
-			if ipsPrivate[i].IsSecondary() != ipsPrivate[j].IsSecondary() {
-				switch {
-				case ipsPrivate[i].IsSecondary():
-					return false
-				case ipsPrivate[j].IsSecondary():
-					return true
-				}
-			}
-			return bytes.Compare(ipsPrivate[i].IP, ipsPrivate[j].IP) < 0
-		})
+		sort.Slice(ipsPrivate, sortIPLessFunc(&ipsPrivate))
 
 		return ipsPrivate[0].IP, nil
 	}
